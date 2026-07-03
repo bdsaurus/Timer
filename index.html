@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>비주얼 타이머</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 25px;
+            width: 100%;
+            max-width: 450px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #timer-container {
+            position: relative;
+            width: 85vw;
+            height: 85vw;
+            max-width: 360px;
+            max-height: 360px;
+            cursor: pointer;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        #control-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+        }
+
+        #digital-time {
+            font-size: 3.2rem;
+            font-weight: 700;
+            color: #1c1c1e;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+        }
+
+        .btn {
+            padding: 15px 65px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .btn:active {
+            transform: scale(0.96);
+        }
+        
+        /* [변경] 시작 버튼 색상을 선명한 녹색(Green)으로 수정 */
+        #start-btn {
+            background-color: #34c759;
+            color: white;
+            box-shadow: 0 4px 10px rgba(52, 199, 89, 0.2);
+        }
+        #start-btn.running {
+            background-color: #ff9500;
+            box-shadow: 0 4px 10px rgba(255, 149, 0, 0.2);
+        }
+        #reset-btn {
+            background-color: #e5e5ea;
+            color: #3a3a3c;
+            padding: 10px 25px;
+            font-size: 0.95rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="timer-container">
+            <canvas id="timerCanvas" width="800" height="800"></canvas>
+        </div>
+
+        <div id="control-panel">
+            <div id="digital-time">00:00</div>
+            <button id="start-btn" class="btn">시작 (START)</button>
+            <button id="reset-btn" class="btn" style="display:none;">초기화</button>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('timerCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('timer-container');
+    const digitalTimeDisplay = document.getElementById('digital-time');
+    const startBtn = document.getElementById('start-btn');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let maxMinutes = 60;
+    let totalSeconds = 0; 
+    let remainingSeconds = 0; 
+    let timerId = null;
+    let isDragging = false;
+
+    drawTimer(0);
+    updateDigitalDisplay(0);
+
+    container.addEventListener('mousedown', startDrag);
+    container.addEventListener('mousemove', drag);
+    window.addEventListener('mouseup', endDrag);
+
+    container.addEventListener('touchstart', startDrag, {passive: false});
+    container.addEventListener('touchmove', drag, {passive: false});
+    window.addEventListener('touchend', endDrag);
+
+    startBtn.addEventListener('click', toggleTimer);
+    resetBtn.addEventListener('click', resetTimer);
+
+    function startDrag(e) {
+        if (timerId) return; 
+        isDragging = true;
+        setTimerByEvent(e);
+    }
+
+    function drag(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        setTimerByEvent(e);
+    }
+
+    function endDrag() {
+        if (isDragging) {
+            isDragging = false;
+        }
+    }
+
+    function setTimerByEvent(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        const x = clientX - (rect.left + rect.width / 2);
+        const y = clientY - (rect.top + rect.height / 2);
+        
+        let angle = Math.atan2(y, x) + Math.PI / 2;
+        if (angle < 0) angle += 2 * Math.PI;
+
+        let rawMinutes = (angle / (2 * Math.PI)) * maxMinutes;
+        let minutes = Math.round(rawMinutes);
+        
+        if (minutes > 60) minutes = 60;
+        if (minutes < 0) minutes = 0;
+
+        totalSeconds = minutes * 60;
+        remainingSeconds = totalSeconds;
+        
+        drawTimer(remainingSeconds / (maxMinutes * 60));
+        updateDigitalDisplay(remainingSeconds);
+        
+        if (remainingSeconds > 0) {
+            resetBtn.style.display = 'block';
+        } else {
+            resetBtn.style.display = 'none';
+        }
+    }
+
+    function toggleTimer() {
+        if (remainingSeconds <= 0) return;
+
+        if (timerId) {
+            clearInterval(timerId);
+            timerId = null;
+            startBtn.innerText = "계속 (RESUME)";
+            startBtn.classList.remove('running');
+        } else {
+            startBtn.innerText = "일시정지 (PAUSE)";
+            startBtn.classList.add('running');
+            resetBtn.style.display = 'block';
+            
+            timerId = setInterval(() => {
+                remainingSeconds--;
+                if (remainingSeconds <= 0) {
+                    remainingSeconds = 0;
+                    clearInterval(timerId);
+                    timerId = null;
+                    startBtn.innerText = "시작 (START)";
+                    startBtn.classList.remove('running');
+                    resetBtn.style.display = 'none';
+                    playAlert();
+                }
+                drawTimer(remainingSeconds / (maxMinutes * 60));
+                updateDigitalDisplay(remainingSeconds);
+            }, 1000);
+        }
+    }
+
+    function resetTimer() {
+        clearInterval(timerId);
+        timerId = null;
+        totalSeconds = 0;
+        remainingSeconds = 0;
+        drawTimer(0);
+        updateDigitalDisplay(0);
+        startBtn.innerText = "시작 (START)";
+        startBtn.classList.remove('running');
+        resetBtn.style.display = 'none';
+    }
+
+    function updateDigitalDisplay(seconds) {
+        const min = Math.floor(seconds / 60);
+        const sec = seconds % 60;
+        const minStr = min < 10 ? '0' + min : min;
+        const secStr = sec < 10 ? '0' + sec : sec;
+        digitalTimeDisplay.innerText = `${minStr}:${secStr}`;
+    }
+
+    function drawTimer(ratio) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const radius = canvas.width / 2 - 80;
+
+        // 배경 가이드 원형선도 살짝 더 또렷하게 조정
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#e5e5ea';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // [변경] 타이머 진행을 알려주는 게이지 영역을 녹색(Green)으로 수정
+        if (ratio > 0) {
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, radius, -Math.PI / 2, (-Math.PI / 2) + (2 * Math.PI * ratio), false);
+            ctx.lineTo(cx, cy);
+            ctx.fillStyle = '#34c759'; 
+            ctx.fill();
+        }
+
+        // [변경] 시계 숫자를 훨씬 진한 블랙(#1c1c1e) 계열로 변경하여 시인성 확보
+        ctx.fillStyle = '#1c1c1e';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        for (let i = 0; i < 60; i++) {
+            let angle = (i / 60) * 2 * Math.PI - Math.PI / 2;
+            
+            if (i % 5 === 0) {
+                let startX = cx + radius * Math.cos(angle);
+                let startY = cy + radius * Math.sin(angle);
+                let endX = cx + (radius + 15) * Math.cos(angle);
+                let endY = cy + (radius + 15) * Math.sin(angle);
+                
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                // 5분 단위 눈금 색상을 더 진한 다크 그레이로 수정
+                ctx.strokeStyle = '#48484a';
+                ctx.lineWidth = 3.5;
+                ctx.stroke();
+
+                let textX = cx + (radius + 45) * Math.cos(angle);
+                let textY = cy + (radius + 45) * Math.sin(angle);
+                ctx.font = 'bold 30px sans-serif'; // 글씨 크기도 살짝 키움
+                ctx.fillText(i === 0 ? "60" : i, textX, textY);
+            } else {
+                let startX = cx + radius * Math.cos(angle);
+                let startY = cy + radius * Math.sin(angle);
+                let endX = cx + (radius + 8) * Math.cos(angle);
+                let endY = cy + (radius + 8) * Math.sin(angle);
+                
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                // 1분 단위 작은 눈금도 더 선명하게 수정
+                ctx.strokeStyle = '#8e8e93';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+            }
+        }
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 10, 0, 2 * Math.PI);
+        ctx.fillStyle = '#1c1c1e';
+        ctx.fill();
+    }
+
+    function playAlert() {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let playCount = 0;
+        
+        function beep() {
+            if (playCount >= 3) return;
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
+            gainNode.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.3);
+            
+            playCount++;
+            setTimeout(beep, 500);
+        }
+        beep();
+    }
+</script>
+</body>
+</html>
